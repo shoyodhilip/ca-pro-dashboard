@@ -21,13 +21,15 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 
 client = gspread.authorize(creds)
 
-sheet = client.open("CA_FINAL_TRACKER")
+sheet = client.open_by_url(
+    "https://docs.google.com/spreadsheets/d/1LmGqy7Wc55yItxpj96VrmUZmzOyVJQy5d2JNhGGkAlU/edit?gid=1533693941#gid=1533693941"
+)
 
 # ---------------- SETTINGS ---------------- #
 
 SUBJECTS = ["FR", "AFM", "Audit", "DT", "IDT"]
 
-EXAM_DATE = datetime(2026, 11, 1)
+EXAM_DATE = datetime(2026, 8, 31)
 
 # ---------------- PAGE CONFIG ---------------- #
 
@@ -87,6 +89,8 @@ section[data-testid="stSidebar"] {
 
 # ---------------- HOURS FIX ---------------- #
 
+# ---------------- TIME FIX ---------------- #
+
 def convert_to_hours(duration):
 
     if duration is None:
@@ -94,20 +98,86 @@ def convert_to_hours(duration):
 
     try:
 
-        if isinstance(duration, (int, float)):
+        # NaN check
+        if pd.isna(duration):
+            return 0
 
-            if pd.isna(duration):
+        # Already number
+        if isinstance(duration, (int, float)):
+            return float(duration)
+
+        # String values like "1.5", "2", "0.4"
+        if isinstance(duration, str):
+
+            duration = duration.strip()
+
+            if duration == "":
                 return 0
 
             return float(duration)
 
+        # Excel time format
         if hasattr(duration, "hour"):
             return duration.hour + duration.minute / 60
 
+        # timedelta
         if hasattr(duration, "total_seconds"):
             return duration.total_seconds() / 3600
 
     except:
+        return 0
+
+    return 0# ---------------- TIME FIX ---------------- #
+
+def convert_to_hours(duration):
+
+    if duration is None:
+        return 0
+
+    try:
+
+        # NaN
+        if pd.isna(duration):
+            return 0
+
+        # Number already
+        if isinstance(duration, (int, float)):
+            return float(duration)
+
+        # String values
+        if isinstance(duration, str):
+
+            duration = duration.strip()
+
+            if duration == "":
+                return 0
+
+            # HANDLE TIME FORMAT 00:24:00
+            if ":" in duration:
+
+                parts = duration.split(":")
+
+                if len(parts) == 3:
+
+                    h = int(parts[0])
+                    m = int(parts[1])
+                    s = int(parts[2])
+
+                    return h + (m / 60) + (s / 3600)
+
+            # HANDLE NORMAL NUMBER
+            return float(duration)
+
+        # Excel datetime/time
+        if hasattr(duration, "hour"):
+            return duration.hour + duration.minute / 60
+
+        # timedelta
+        if hasattr(duration, "total_seconds"):
+            return duration.total_seconds() / 3600
+
+    except Exception as e:
+        print("ERROR:", e)
         return 0
 
     return 0
@@ -129,9 +199,10 @@ for subject in SUBJECTS:
 
     ws = sheet.worksheet(subject)
 
-    data = ws.get_all_records()
-
-    df = pd.DataFrame(data)
+    @st.cache_data(ttl=10)
+    def load_data(_ws):
+        return pd.DataFrame(_ws.get_all_records())
+    df = load_data(ws)
 
     total = 0
     done = 0
@@ -145,7 +216,7 @@ for subject in SUBJECTS:
 
         total += hrs
 
-        if completed:
+        if str(completed).strip().lower() == "true":
             done += hrs
 
     subject_data[subject] = (done, total)
@@ -223,11 +294,11 @@ if selected_subject != "Select":
 
         checkbox = st.checkbox(
             f"Day {day} | Part {part} | {topic} ({hrs:.1f} hrs)",
-            value=bool(completed),
+            value=str(completed).strip().lower() == "true",
             key=f"{selected_subject}_{i}"
         )
 
-        if checkbox != bool(completed):
+        if checkbox != (str(completed).strip().lower() == "true"):
 
             ws.update_cell(i + 2, 5, checkbox)
 
@@ -238,7 +309,7 @@ if selected_subject != "Select":
 
             st.success("Progress Updated ✅")
 
-            st.rerun()
+            st.toast("Updated ✅")
 
 # ---------------- SUBJECT PROGRESS ---------------- #
 
