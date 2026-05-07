@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
-from openpyxl import load_workbook
 from datetime import datetime, date
 import matplotlib.pyplot as plt
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+
+# ---------------- GOOGLE SHEETS SETUP ---------------- #
 
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -19,20 +20,24 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 
 client = gspread.authorize(creds)
+
 sheet = client.open("CA_FINAL_TRACKER")
 
 # ---------------- SETTINGS ---------------- #
+
 SUBJECTS = ["FR", "AFM", "Audit", "DT", "IDT"]
 
-EXAM_DATE = datetime(2026, 8, 30)
+EXAM_DATE = datetime(2026, 11, 1)
 
 # ---------------- PAGE CONFIG ---------------- #
+
 st.set_page_config(
-    page_title="CA Final Pro Tracker",
+    page_title="CA Final Pro Dashboard",
     layout="wide"
 )
 
 # ---------------- MODERN UI ---------------- #
+
 st.markdown("""
 <style>
 
@@ -46,34 +51,42 @@ h1, h2, h3 {
 }
 
 div[data-testid="metric-container"] {
-    background: #1E1E2F;
+    background: linear-gradient(135deg, #1E1E2F, #252540);
     padding: 20px;
-    border-radius: 15px;
+    border-radius: 18px;
     border: 1px solid #333;
     text-align: center;
+    box-shadow: 0px 4px 20px rgba(0,0,0,0.3);
 }
 
 div.stButton > button {
     width: 100%;
-    border-radius: 10px;
+    border-radius: 12px;
     height: 3em;
-    background-color: #4CAF50;
+    background: linear-gradient(90deg, #4CAF50, #2ECC71);
     color: white;
     border: none;
     font-size: 16px;
+    font-weight: bold;
 }
 
 .stCheckbox {
     background-color: #1E1E2F;
-    padding: 10px;
-    border-radius: 10px;
-    margin-bottom: 5px;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    border: 1px solid #333;
+}
+
+section[data-testid="stSidebar"] {
+    background-color: #161A28;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- TIME FIX ---------------- #
+# ---------------- HOURS FIX ---------------- #
+
 def convert_to_hours(duration):
 
     if duration is None:
@@ -100,23 +113,24 @@ def convert_to_hours(duration):
     return 0
 
 # ---------------- HEADER ---------------- #
-st.title("📚 CA Final Pro Dashboard")
 
-# ---------------- DASHBOARD ---------------- #
+st.title("🚀 CA Final Pro Dashboard")
+
+st.markdown("---")
+
+# ---------------- DASHBOARD CALCULATIONS ---------------- #
+
 total_hours = 0
 completed_hours = 0
 
 subject_data = {}
 
-for subject, file in FILES.items():
-
-    if not os.path.exists(file):
-        continue
+for subject in SUBJECTS:
 
     ws = sheet.worksheet(subject)
-    
+
     data = ws.get_all_records()
-    
+
     df = pd.DataFrame(data)
 
     total = 0
@@ -140,82 +154,95 @@ for subject, file in FILES.items():
     completed_hours += done
 
 # ---------------- COUNTDOWN ---------------- #
+
 days_left = (EXAM_DATE.date() - date.today()).days
 
-remaining = total_hours - completed_hours
+remaining_hours = max(total_hours - completed_hours, 0)
 
-required_per_day = remaining / days_left if days_left else 0
+required_per_day = remaining_hours / days_left if days_left > 0 else 0
 
-col1, col2, col3 = st.columns(3)
+# ---------------- PRESSURE METER ---------------- #
+
+if required_per_day < 4:
+    pressure = "🟢 LOW"
+elif required_per_day < 8:
+    pressure = "🟡 MEDIUM"
+else:
+    pressure = "🔴 HIGH"
+
+# ---------------- METRICS ---------------- #
+
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("⏳ Days Left", days_left)
-col2.metric("📖 Completed Hours", round(completed_hours, 1))
+col2.metric("📚 Completed Hours", round(completed_hours, 1))
 col3.metric("🔥 Required / Day", round(required_per_day, 1))
+col4.metric("⚠️ Pressure", pressure)
 
 # ---------------- OVERALL PROGRESS ---------------- #
+
 overall_percent = (completed_hours / total_hours * 100) if total_hours else 0
 
-st.subheader("📊 Overall Progress")
+st.subheader("📈 Overall Progress")
 
 st.progress(overall_percent / 100)
 
 st.write(f"### {overall_percent:.1f}% Completed")
 
 # ---------------- SUBJECT SELECT ---------------- #
+
 st.subheader("📘 Subject Tracker")
 
 selected_subject = st.selectbox(
     "Choose Subject",
-    ["Select"] + list(FILES.keys()),
+    ["Select"] + SUBJECTS,
     index=0
 )
 
-# ---------------- SUBJECT TOPICS ---------------- #
+# ---------------- SUBJECT TASKS ---------------- #
+
 if selected_subject != "Select":
 
-    file = FILES[selected_subject]
+    ws = sheet.worksheet(selected_subject)
 
-    if os.path.exists(file):
+    data = ws.get_all_records()
 
-        wb = load_workbook(file)
-        ws = wb.active
+    df = pd.DataFrame(data)
 
-        st.write(f"## {selected_subject}")
+    st.write(f"## 📖 {selected_subject}")
 
-        for i, row in enumerate(ws.iter_rows(min_row=2), start=2):
+    for i, row in df.iterrows():
 
-            day = row[0].value
-            part = row[1].value
-            topic = row[2].value
-            duration = row[3].value
-            completed = row[4].value
+        day = row["Day"]
+        part = row["Part"]
+        topic = row["Topic"]
+        duration = row["Hours"]
+        completed = row["Completed"]
 
-            hrs = convert_to_hours(duration)
+        hrs = convert_to_hours(duration)
 
-            checkbox = st.checkbox(
-                f"Day {day} | Part {part} | {topic} ({hrs:.1f} hrs)",
-                value=bool(completed),
-                key=f"{selected_subject}_{i}"
-            )
+        checkbox = st.checkbox(
+            f"Day {day} | Part {part} | {topic} ({hrs:.1f} hrs)",
+            value=bool(completed),
+            key=f"{selected_subject}_{i}"
+        )
 
-            # SAVE TO EXCEL
-            if checkbox != bool(completed):
+        if checkbox != bool(completed):
 
-                ws.update_cell(i + 2, 5, checkbox)
+            ws.update_cell(i + 2, 5, checkbox)
 
-                if checkbox:
-                    ws.update_cell(i + 2, 6, str(date.today()))
-                else:
-                    ws.cell(row=i, column=6).value = ""
+            if checkbox:
+                ws.update_cell(i + 2, 6, str(date.today()))
+            else:
+                ws.update_cell(i + 2, 6, "")
 
-                wb.save(file)
+            st.success("Progress Updated ✅")
 
-                st.success("Progress Updated ✅")
-
-                st.rerun()
+            st.rerun()
 
 # ---------------- SUBJECT PROGRESS ---------------- #
-st.subheader("📈 Subject Progress")
+
+st.subheader("📊 Subject Progress")
 
 for subject, values in subject_data.items():
 
@@ -229,10 +256,9 @@ for subject, values in subject_data.items():
 
     st.write(f"{done:.1f}/{total:.1f} hrs")
 
-# ---------------- ADVANCED CHARTS ---------------- #
-st.subheader("📊 Study Analytics")
+# ---------------- ADVANCED ANALYTICS ---------------- #
 
-remaining = max(total_hours - completed_hours, 0)
+st.subheader("📈 Advanced Analytics")
 
 if total_hours > 0:
 
@@ -242,7 +268,11 @@ if total_hours > 0:
     with col1:
 
         labels = ["Completed", "Remaining"]
-        sizes = [completed_hours, remaining]
+
+        sizes = [
+            completed_hours,
+            remaining_hours
+        ]
 
         fig1, ax1 = plt.subplots()
 
@@ -277,13 +307,26 @@ if total_hours > 0:
 
         ax2.set_ylabel("Completion %")
 
-        ax2.set_title("Subject Progress")
+        ax2.set_title("Subject Wise Progress")
 
         st.pyplot(fig2)
 
+# ---------------- MOTIVATION ---------------- #
+
+st.markdown("---")
+
+if overall_percent < 25:
+    st.warning("🚀 Start pushing harder. Consistency is key.")
+elif overall_percent < 50:
+    st.info("🔥 Good progress. Keep the momentum going.")
+elif overall_percent < 75:
+    st.success("💪 Excellent work. You're ahead of many students.")
 else:
-    st.warning("No study data available yet.")
+    st.balloons()
+    st.success("🏆 You're very close to CA Final victory!")
 
 # ---------------- FOOTER ---------------- #
+
 st.markdown("---")
-st.write("🔥 CA Final Success Dashboard")
+
+st.write("⚡ Built with Streamlit + Google Sheets Cloud Sync")
