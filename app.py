@@ -3,16 +3,24 @@ import pandas as pd
 from openpyxl import load_workbook
 from datetime import datetime, date
 import matplotlib.pyplot as plt
-import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
+
+creds = ServiceAccountCredentials.from_json_keyfile_name(
+    "credentials.json",
+    scope
+)
+
+client = gspread.authorize(creds)
+sheet = client.open("CA_FINAL_TRACKER")
 
 # ---------------- SETTINGS ---------------- #
-FILES = {
-    "FR": "FR.xlsx",
-    "AFM": "AFM.xlsx",
-    "Audit": "Audit.xlsx",
-    "DT": "DT.xlsx",
-    "IDT": "IDT.xlsx"
-}
+SUBJECTS = ["FR", "AFM", "Audit", "DT", "IDT"]
 
 EXAM_DATE = datetime(2026, 8, 30)
 
@@ -103,16 +111,19 @@ for subject, file in FILES.items():
     if not os.path.exists(file):
         continue
 
-    wb = load_workbook(file)
-    ws = wb.active
+    ws = sheet.worksheet(subject)
+    
+    data = ws.get_all_records()
+    
+    df = pd.DataFrame(data)
 
     total = 0
     done = 0
 
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    for index, row in df.iterrows():
 
-        duration = row[3]
-        completed = row[4]
+        duration = row["Hours"]
+        completed = row["Completed"]
 
         hrs = convert_to_hours(duration)
 
@@ -188,10 +199,10 @@ if selected_subject != "Select":
             # SAVE TO EXCEL
             if checkbox != bool(completed):
 
-                ws.cell(row=i, column=5).value = checkbox
+                ws.update_cell(i + 2, 5, checkbox)
 
                 if checkbox:
-                    ws.cell(row=i, column=6).value = str(date.today())
+                    ws.update_cell(i + 2, 6, str(date.today()))
                 else:
                     ws.cell(row=i, column=6).value = ""
 
